@@ -139,7 +139,17 @@ func getResponse(req Request) Response {
 
 	case strings.HasPrefix(req.Target, "/echo/"):
 		value := strings.TrimPrefix(req.Target, "/echo/")
-		res = NewResponse(200, value, nil)
+
+		accpetedEncoding := req.Headers["accept-encoding"]
+
+		if accpetedEncoding == "gzip" {
+			res = NewResponse(200, value, map[string]string{
+				"Content-Encoding": accpetedEncoding,
+			})
+			break
+		} else {
+			res = NewResponse(200, value, nil)
+		}
 
 	case req.Target == "/user-agent":
 		useragent := req.Headers["user-agent"]
