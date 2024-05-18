@@ -32,12 +32,22 @@ func NewRequest(bytes *[]byte) Request {
 		parts := strings.SplitN(line, ": ", 2)
 		headers[strings.ToLower(parts[0])] = parts[1]
 	}
+
+	cl, ok := headers["content-length"]
+	var body string
+	if !ok {
+		fmt.Println("content-length not set")
+		body = rest[1]
+	} else {
+		contentLength, _ := strconv.Atoi(cl)
+		body = rest[1][:contentLength]
+	}
 	req := Request{
 		Method:  reqLine[0],
 		Target:  reqLine[1],
 		Version: reqLine[2],
 		Headers: headers,
-		Body:    rest[1],
+		Body:    body,
 	}
 	return req
 }
@@ -65,11 +75,15 @@ func NewResponse(code int, body string, headers map[string]string) Response {
 	if code == 200 {
 		res.StatusCode = code
 		res.Message = "OK"
+	} else if code == 201 {
+		res.StatusCode = code
+		res.Message = "Created"
 	} else if code == 404 {
 		res.StatusCode = 404
 		res.Message = "Not Found"
 	} else {
-		panic(fmt.Errorf("not a valid response code"))
+		res.StatusCode = 500
+		res.Message = "Internal Server Error"
 	}
 	res.Body = body
 
@@ -135,15 +149,27 @@ func getResponse(req Request) Response {
 		fileName := strings.TrimPrefix(req.Target, "/files/")
 		filePath := filepath.Join(dir, filepath.Base(fileName))
 
-		fileContent, err := os.ReadFile(filePath)
-		if err != nil {
-			res = NewResponse(404, "", nil)
-			break
-		}
+		if req.Method == "GET" {
+			fileContent, err := os.ReadFile(filePath)
+			if err != nil {
+				res = NewResponse(404, "", nil)
+				break
+			}
 
-		res = NewResponse(200, string(fileContent), map[string]string{
-			"Content-Type": "application/octet-stream",
-		})
+			res = NewResponse(200, string(fileContent), map[string]string{
+				"Content-Type": "application/octet-stream",
+			})
+		} else {
+			// req.Body = "pineapple raspberry pear mango apple blueberry strawberry banana"
+			fmt.Println("'", req.Body, "'", len(req.Body))
+			err := os.WriteFile(filePath, []byte(req.Body), 0777)
+			if err != nil {
+				res = NewResponse(500, "", nil)
+				break
+			}
+
+			res = NewResponse(201, "", nil)
+		}
 
 	default:
 		res = NewResponse(404, "", nil)
@@ -158,7 +184,6 @@ func handleConnection(conn net.Conn) {
 		fmt.Println(err)
 		return
 	}
-
 	res := getResponse(req)
 
 	_, err = conn.Write([]byte(res.String()))
