@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/codecrafters-io/http-server-starter-go/app/utils"
 )
 
 const CRLF string = "\r\n"
@@ -162,7 +164,13 @@ func getResponse(req Request) Response {
 		encoding := req.AcceptsEncoding("gzip")
 
 		if encoding != "" {
-			res = NewResponse(200, value, map[string]string{
+			gzipped, err := utils.GzipContent(value)
+			if err != nil {
+				res = NewResponse(500, "", nil)
+				break
+			}
+
+			res = NewResponse(200, string(gzipped), map[string]string{
 				"Content-Encoding": encoding,
 			})
 		} else {
