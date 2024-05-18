@@ -4,42 +4,36 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
-	// Uncomment this block to pass the first stage
-	// "net"
-	// "os"
 )
 
-// GET                          // HTTP method
-// /index.html                  // Request target
-// HTTP/1.1                     // HTTP version
-// \r\n                         // CRLF that marks the end of the request line
+const CRLF string = "\r\n"
 
-// // Headers
-// Host: localhost:4221\r\n     // Header that specifies the server's host and port
-// User-Agent: curl/7.64.1\r\n  // Header that describes the client's user agent
-// Accept: */*\r\n              // Header that specifies which media types the client can accept
-// \r\n                         // CRLF that marks the end of the headers
-
-// Request body (empty)
 type Request struct {
 	Method  string
 	Target  string
 	Version string
-	Headers string
+	Headers map[string]string
 	Body    string
 }
 
 func NewRequest(bytes *[]byte) Request {
-	reqValues := strings.SplitN(string(*bytes), "\r\n", 2)
+	reqValues := strings.SplitN(string(*bytes), CRLF, 2)
 	reqLine := strings.Split(reqValues[0], " ")
-	rest := strings.SplitN(reqValues[1], "\r\n\r\n", 2)
+	rest := strings.SplitN(reqValues[1], CRLF+CRLF, 2)
+
+	headers := make(map[string]string)
+	for _, line := range strings.Split(rest[0], CRLF) {
+		parts := strings.SplitN(line, ": ", 2)
+		headers[parts[0]] = parts[1]
+	}
 
 	req := Request{
 		Method:  reqLine[0],
 		Target:  reqLine[1],
 		Version: reqLine[2],
-		Headers: rest[0],
+		Headers: headers,
 		Body:    rest[1],
 	}
 	return req
@@ -56,14 +50,14 @@ type Response struct {
 	Version    string
 	StatusCode int
 	Message    string
-	Headers    string
+	Headers    map[string]string
 	Body       string
 }
 
-func NewResponse(code int, body string) Response {
+func NewResponse(code int, body string, headers map[string]string) Response {
 	res := Response{
 		Version: "HTTP/1.1",
-		Headers: "",
+		Headers: make(map[string]string),
 	}
 	if code == 200 {
 		res.StatusCode = code
@@ -75,14 +69,80 @@ func NewResponse(code int, body string) Response {
 		panic(fmt.Errorf("not a valid response code"))
 	}
 	res.Body = body
+
+	if headers == nil {
+		res.Headers["Content-Type"] = "text/plain"
+		res.Headers["Content-Length"] = strconv.Itoa(len(body))
+	} else {
+		if _, ok := headers["Content-Type"]; !ok {
+			res.Headers["Content-Type"] = "text/plain"
+		}
+		if _, ok := headers["Content-Length"]; !ok {
+			res.Headers["Content-Length"] = strconv.Itoa(len(body))
+		}
+
+		for key, value := range headers {
+			res.Headers[key] = value
+		}
+	}
+
 	return res
 }
 
 func (r *Response) String() string {
+	var headersBuilder strings.Builder
+	for key, value := range r.Headers {
+		headersBuilder.WriteString(fmt.Sprintf("%s: %s%s", key, value, CRLF))
+	}
+
 	return fmt.Sprintf(
-		"%s %d %s\r\n%s\r\n%s",
-		r.Version, r.StatusCode, r.Message, r.Headers, r.Body,
+		"%s %d %s%s%s%s%s",
+		r.Version, r.StatusCode, r.Message, CRLF, headersBuilder.String(), CRLF, r.Body,
 	)
+}
+
+func readRequest(conn net.Conn) (Request, error) {
+	buffer := make([]byte, 1024)
+
+	_, err := conn.Read(buffer)
+	if err != nil {
+		return Request{}, fmt.Errorf("error reading request: %v", err)
+	}
+	req := NewRequest(&buffer)
+
+	return req, nil
+}
+
+func processRequest(req Request) Response {
+	var res Response
+	switch {
+	case req.Target == "/":
+		res = NewResponse(200, "", nil)
+
+	case strings.HasPrefix(req.Target, "/echo/"):
+		value := strings.SplitN(req.Target, "/echo/", 2)[1]
+		res = NewResponse(200, value, nil)
+
+	default:
+		res = NewResponse(404, "", nil)
+	}
+
+	return res
+}
+
+func handleConnection(conn net.Conn) {
+	req, err := readRequest(conn)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	res := processRequest(req)
+
+	_, err = conn.Write([]byte(res.String()))
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func main() {
@@ -99,26 +159,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	buffer := make([]byte, 1024)
-
-	_, err = conn.Read(buffer)
-	if err != nil {
-		fmt.Println("Error reading request: ", err.Error())
-		os.Exit(1)
-	}
-	req := NewRequest(&buffer)
-	fmt.Println("req", req)
-
-	var res Response
-	if req.Target == "/" {
-		res = NewResponse(200, "")
-	} else {
-		res = NewResponse(404, "")
-	}
-
-	_, err = conn.Write([]byte(res.String()))
-	if err != nil {
-		fmt.Println("Error writing response ", err.Error())
-	}
+	handleConnection(conn)
 
 }
