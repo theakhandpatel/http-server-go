@@ -26,9 +26,8 @@ func NewRequest(bytes *[]byte) Request {
 	headers := make(map[string]string)
 	for _, line := range strings.Split(rest[0], CRLF) {
 		parts := strings.SplitN(line, ": ", 2)
-		headers[parts[0]] = parts[1]
+		headers[strings.ToLower(parts[0])] = parts[1]
 	}
-
 	req := Request{
 		Method:  reqLine[0],
 		Target:  reqLine[1],
@@ -113,7 +112,7 @@ func readRequest(conn net.Conn) (Request, error) {
 	return req, nil
 }
 
-func processRequest(req Request) Response {
+func getResponse(req Request) Response {
 	var res Response
 	switch {
 	case req.Target == "/":
@@ -122,6 +121,10 @@ func processRequest(req Request) Response {
 	case strings.HasPrefix(req.Target, "/echo/"):
 		value := strings.SplitN(req.Target, "/echo/", 2)[1]
 		res = NewResponse(200, value, nil)
+
+	case req.Target == "/user-agent":
+		useragent := req.Headers["user-agent"]
+		res = NewResponse(200, useragent, nil)
 
 	default:
 		res = NewResponse(404, "", nil)
@@ -137,7 +140,7 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	res := processRequest(req)
+	res := getResponse(req)
 
 	_, err = conn.Write([]byte(res.String()))
 	if err != nil {
