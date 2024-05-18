@@ -1,14 +1,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 const CRLF string = "\r\n"
+
+var dir string
 
 type Request struct {
 	Method  string
@@ -114,17 +118,32 @@ func readRequest(conn net.Conn) (Request, error) {
 
 func getResponse(req Request) Response {
 	var res Response
+
 	switch {
 	case req.Target == "/":
 		res = NewResponse(200, "", nil)
 
 	case strings.HasPrefix(req.Target, "/echo/"):
-		value := strings.SplitN(req.Target, "/echo/", 2)[1]
+		value := strings.TrimPrefix(req.Target, "/echo/")
 		res = NewResponse(200, value, nil)
 
 	case req.Target == "/user-agent":
 		useragent := req.Headers["user-agent"]
 		res = NewResponse(200, useragent, nil)
+
+	case strings.HasPrefix(req.Target, "/files/"):
+		fileName := strings.TrimPrefix(req.Target, "/files/")
+		filePath := filepath.Join(dir, filepath.Base(fileName))
+
+		fileContent, err := os.ReadFile(filePath)
+		if err != nil {
+			res = NewResponse(404, "", nil)
+			break
+		}
+
+		res = NewResponse(200, string(fileContent), map[string]string{
+			"Content-Type": "application/octet-stream",
+		})
 
 	default:
 		res = NewResponse(404, "", nil)
@@ -149,6 +168,9 @@ func handleConnection(conn net.Conn) {
 }
 
 func main() {
+
+	flag.StringVar(&dir, "directory", "./", "Static files directory path(absolute)")
+	flag.Parse()
 
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
