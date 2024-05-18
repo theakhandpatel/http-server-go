@@ -59,6 +59,26 @@ func (r *Request) String() string {
 	)
 }
 
+// AcceptsEncoding checks if the request accepts any of the provided encodings.
+// It returns the first matching encoding, or an empty string if no encoding matches.
+func (req *Request) AcceptsEncoding(encodings ...string) string {
+	acceptedEncoding, ok := req.Headers["accept-encoding"]
+	if !ok {
+		return ""
+	}
+
+	acceptedEncodings := strings.Split(acceptedEncoding, ",")
+	for _, accepted := range acceptedEncodings {
+		accepted = strings.TrimSpace(accepted)
+		for _, encoding := range encodings {
+			if accepted == encoding {
+				return encoding
+			}
+		}
+	}
+	return ""
+}
+
 type Response struct {
 	Version    string
 	StatusCode int
@@ -139,14 +159,12 @@ func getResponse(req Request) Response {
 
 	case strings.HasPrefix(req.Target, "/echo/"):
 		value := strings.TrimPrefix(req.Target, "/echo/")
+		encoding := req.AcceptsEncoding("gzip")
 
-		accpetedEncoding := req.Headers["accept-encoding"]
-
-		if accpetedEncoding == "gzip" {
+		if encoding != "" {
 			res = NewResponse(200, value, map[string]string{
-				"Content-Encoding": accpetedEncoding,
+				"Content-Encoding": encoding,
 			})
-			break
 		} else {
 			res = NewResponse(200, value, nil)
 		}
@@ -170,7 +188,6 @@ func getResponse(req Request) Response {
 				"Content-Type": "application/octet-stream",
 			})
 		} else {
-			// req.Body = "pineapple raspberry pear mango apple blueberry strawberry banana"
 			fmt.Println("'", req.Body, "'", len(req.Body))
 			err := os.WriteFile(filePath, []byte(req.Body), 0777)
 			if err != nil {
